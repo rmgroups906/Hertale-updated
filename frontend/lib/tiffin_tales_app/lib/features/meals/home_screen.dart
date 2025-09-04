@@ -18,39 +18,50 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _vegType;
   String? _cuisine;
   String? _role;
-  bool _loading = true;
+  Future<List<List<Meal>>>? _dataFuture;
 
   @override
   void initState() {
     super.initState();
-    _fetchPreferences();
+    _dataFuture = _loadData();
   }
 
-  Future<void> _fetchPreferences() async {
-    setState(() => _loading = true);
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      final data = doc.data();
-      setState(() {
-        _vegType = data?['vegType'];
-        _cuisine = data?['cuisine'];
-        _role = data?['role'];
-        _loading = false;
-      });
+  Future<List<List<Meal>>> _loadData() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .get();
+        final data = doc.data();
+        // Use a local variable for role to avoid waiting for setState
+        final userRole = data?['role'];
+
+        if (mounted) {
+          setState(() {
+            _vegType = data?['vegType'];
+            _cuisine = data?['cuisine'];
+            _role = userRole;
+          });
+        }
+      }
+      // Now that preferences are set, fetch meals.
+      return await Future.wait([_fetchMeals(), _fetchPopularMeals()]);
+    } catch (e) {
+      debugPrint('Error loading data: $e');
+      // Optionally, show a snackbar to the user about the error
+      // Re-throw the error to be caught by the FutureBuilder
+      throw Exception('Failed to load meal data.');
     }
   }
 
   Future<List<Meal>> _fetchMeals() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return [];
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final prefs = userDoc.data();
-    if (prefs == null) return [];
+    if (_vegType == null || _cuisine == null) return [];
     final query = await FirebaseFirestore.instance
         .collection('meals')
-        .where('vegType', isEqualTo: prefs['vegType'])
-        .where('cuisine', isEqualTo: prefs['cuisine'])
+        .where('vegType', isEqualTo: _vegType)
+        .where('cuisine', isEqualTo: _cuisine)
         .get();
     return query.docs.map((doc) => Meal.fromMap(doc.id, doc.data())).toList();
   }
@@ -65,49 +76,58 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openPreferences() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const UserPreferencesScreen()),
-    );
-    _fetchPreferences();
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const UserPreferencesScreen()));
+    setState(() {
+      _dataFuture = _loadData();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-  leading: Padding(
-    padding: const EdgeInsets.all(10.0),
-    child: ClipOval(
-      child: Container(
-        color: const Color(0xFF004D00), // Emerald background for the circle
-        padding: const EdgeInsets.all(4), // Optional inner padding
-        child: Image.asset(
-          'lib/assets/HerTale.png',
-          width: 30, // Adjust size as needed
-          height: 30,
-          fit: BoxFit.cover, // Ensures the image fills the circle
-          errorBuilder: (context, error, stackTrace) => const Icon(
-            Icons.restaurant,
-            color: Color.fromARGB(255, 255, 255, 255), // Gold color for fallback icon
-            size: 30,
+        leading: Padding(
+          padding: const EdgeInsets.all(10.0),
+          child: ClipOval(
+            child: Container(
+              color: const Color(
+                0xFF004D00,
+              ), // Emerald background for the circle
+              padding: const EdgeInsets.all(4), // Optional inner padding
+              child: Image.asset(
+                'lib/assets/HerTale.png',
+                width: 30, // Adjust size as needed
+                height: 30,
+                fit: BoxFit.cover, // Ensures the image fills the circle
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.restaurant,
+                  color: Color.fromARGB(
+                    255,
+                    255,
+                    255,
+                    255,
+                  ), // Gold color for fallback icon
+                  size: 30,
+                ),
+              ),
+            ),
           ),
         ),
-      ),
-    ),
-  ),
-        title: const Text('Tiffin Tales',
-            style: TextStyle(
-              fontFamily: 'PlayfairDisplay',
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            )),
+        title: const Text(
+          'Tiffin Tales',
+          style: TextStyle(
+            fontFamily: 'PlayfairDisplay',
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: const Color(0xFF004D00),
         foregroundColor: const Color.fromARGB(255, 255, 255, 255),
         elevation: 0,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(
-            bottom: Radius.circular(20),
-          ),
+          borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
         ),
         actions: [
           if (_role == 'Homemaker')
@@ -116,9 +136,7 @@ class _HomeScreenState extends State<HomeScreen> {
               tooltip: 'Add Dish',
               onPressed: () {
                 Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => HomemakerHomeScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => HomemakerHomeScreen()),
                 );
               },
             ),
@@ -126,144 +144,167 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.shopping_basket_outlined, size: 26),
             tooltip: 'Cart',
             onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CartPage(),
-                ),
-              );
+              Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const CartPage()));
             },
           ),
         ],
       ),
       backgroundColor: const Color(0xFFFFF8DC),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFF884513)))
-          : FutureBuilder<List<List<Meal>>>(
-              future: Future.wait([
-                _fetchMeals(),
-                _fetchPopularMeals(),
-              ]),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: Color(0xFF884513)));
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}', 
-                      style: const TextStyle(color: Color(0xFF004D00))));
-                }
-                final results = snapshot.data ?? <List<Meal>>[[], []];
-                final List<Meal> meals = results.isNotEmpty ? results[0] : [];
-                final List<Meal> popularMeals = results.length > 1 ? results[1] : [];
-                final dailyMeals = meals.where((m) => m.type == 'Daily').toList();
-                final combos = meals.where((m) => m.type == 'Combo').toList();
-                final homemakerMeals = meals.where((m) => m.type == 'Homemaker').toList();
-                
-                return CustomScrollView(
-                  slivers: [
-                    // Preferences section
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
-                        child: Card(
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(15),
-                            side: const BorderSide(color: Color(0xFF88860B), width: 1),
+      body: FutureBuilder<List<List<Meal>>>(
+        future: _dataFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFF884513)),
+            );
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error: ${snapshot.error}',
+                style: const TextStyle(color: Color(0xFF004D00)),
+              ),
+            );
+          }
+          final results = snapshot.data ?? <List<Meal>>[[], []];
+          final List<Meal> meals = results.isNotEmpty ? results[0] : [];
+          final List<Meal> popularMeals = results.length > 1 ? results[1] : [];
+          final dailyMeals = meals.where((m) => m.type == 'Daily').toList();
+          final combos = meals.where((m) => m.type == 'Combo').toList();
+          final homemakerMeals = meals
+              .where((m) => m.type == 'Homemaker')
+              .toList();
+
+          return CustomScrollView(
+            slivers: [
+              // Preferences section
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 12,
+                  ),
+                  child: Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                      side: const BorderSide(
+                        color: Color(0xFF88860B),
+                        width: 1,
+                      ),
+                    ),
+                    color: const Color(0xFFFFF8DC),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      leading: const Icon(
+                        Icons.filter_vintage_rounded,
+                        color: Color(0xFF884513),
+                        size: 28,
+                      ),
+                      title: Text(
+                        'Your Preferences',
+                        style: TextStyle(
+                          color: const Color(0xFF004D00),
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'PlayfairDisplay',
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${_vegType ?? "-"}, ${_cuisine ?? "-"}',
+                        style: const TextStyle(color: Color(0xFF884513)),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: Color(0xFF884513),
+                          size: 24,
+                        ),
+                        onPressed: _openPreferences,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Daily Meals section
+              if (dailyMeals.isNotEmpty)
+                _buildMealSection('Daily Meals', dailyMeals),
+
+              // Popular Combos section
+              if (combos.isNotEmpty)
+                _buildMealSection('Popular Combos', combos),
+
+              // Homemaker Listings section
+              if (homemakerMeals.isNotEmpty)
+                _buildMealSection('Local Homemaker Listings', homemakerMeals),
+
+              // Empty state
+              if (meals.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      children: [
+                        Image.asset('lib/assets/empty_pot.png', height: 120),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No meals found for your preferences.',
+                          style: TextStyle(
+                            color: Color(0xFF004D00),
+                            fontSize: 16,
+                            fontFamily: 'PlayfairDisplay',
                           ),
-                          color: const Color(0xFFFFF8DC),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                            leading: const Icon(Icons.filter_vintage_rounded, 
-                                color: Color(0xFF884513), size: 28),
-                            title: Text('Your Preferences', 
-                                style: TextStyle(
-                                  color: const Color(0xFF004D00),
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'PlayfairDisplay',
-                                )),
-                            subtitle: Text('${_vegType ?? "-"}, ${_cuisine ?? "-"}',
-                                style: const TextStyle(color: Color(0xFF884513))),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.edit, 
-                                  color: Color(0xFF884513), size: 24),
-                              onPressed: _openPreferences,
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: _openPreferences,
+                          child: const Text(
+                            'Update Preferences',
+                            style: TextStyle(
+                              color: Color(0xFF88860B),
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                    
-                    // Daily Meals section
-                    if (dailyMeals.isNotEmpty)
-                      _buildMealSection('Daily Meals', dailyMeals),
-                    
-                    // Popular Combos section
-                    if (combos.isNotEmpty)
-                      _buildMealSection('Popular Combos', combos),
-                    
-                    // Homemaker Listings section
-                    if (homemakerMeals.isNotEmpty)
-                      _buildMealSection('Local Homemaker Listings', homemakerMeals),
-                    
-                    // Empty state
-                    if (meals.isEmpty)
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.all(32.0),
-                          child: Column(
-                            children: [
-                              Image.asset('lib/assets/empty_pot.png', height: 120),
-                              const SizedBox(height: 16),
-                              const Text('No meals found for your preferences.',
-                                  style: TextStyle(
-                                    color: Color(0xFF004D00),
-                                    fontSize: 16,
-                                    fontFamily: 'PlayfairDisplay',
-                                  )),
-                              const SizedBox(height: 8),
-                              TextButton(
-                                onPressed: _openPreferences,
-                                child: const Text('Update Preferences',
-                                    style: TextStyle(
-                                      color: Color(0xFF88860B),
-                                      fontWeight: FontWeight.bold,
-                                    )),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    
-                    // Popular Dishes section (always shown)
-                    if (popularMeals.isNotEmpty)
-                      _buildMealSection('Popular Dishes', popularMeals),
-                  ],
-                );
-              },
-            ),
+                  ),
+                ),
+
+              // Popular Dishes section (always shown)
+              if (popularMeals.isNotEmpty)
+                _buildMealSection('Popular Dishes', popularMeals),
+            ],
+          );
+        },
+      ),
     );
   }
 
   SliverList _buildMealSection(String title, List<Meal> meals) {
     return SliverList(
-      delegate: SliverChildBuilderDelegate(
-        (context, index) {
-          if (index == 0) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
-              child: Text(title,
-                  style: TextStyle(
-                    color: const Color(0xFF004D00),
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'PlayfairDisplay',
-                  )),
-            );
-          }
-          return MealCard(meal: meals[index - 1]);
-        },
-        childCount: meals.length + 1,
-      ),
+      delegate: SliverChildBuilderDelegate((context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+            child: Text(
+              title,
+              style: TextStyle(
+                color: const Color(0xFF004D00),
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'PlayfairDisplay',
+              ),
+            ),
+          );
+        }
+        return MealCard(meal: meals[index - 1]);
+      }, childCount: meals.length + 1),
     );
   }
 }
@@ -285,9 +326,9 @@ class MealCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(15),
         onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => MealDetailPage(meal: meal)),
-          );
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => MealDetailPage(meal: meal)));
         },
         child: Padding(
           padding: const EdgeInsets.all(12.0),
@@ -312,15 +353,21 @@ class MealCard extends StatelessWidget {
                           width: double.infinity,
                           fit: BoxFit.cover,
                           errorBuilder: (context, error, stackTrace) => Center(
-                            child: Icon(Icons.food_bank_rounded, 
-                                size: 60, color: const Color(0xFF884513).withOpacity(0.5)),
+                            child: Icon(
+                              Icons.food_bank_rounded,
+                              size: 60,
+                              color: const Color(0xFF884513).withOpacity(0.5),
+                            ),
                           ),
                         ),
                         Positioned(
                           top: 8,
                           right: 8,
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF004D00).withOpacity(0.8),
                               borderRadius: BorderRadius.circular(20),
@@ -354,7 +401,10 @@ class MealCard extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF88860B).withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
@@ -373,10 +423,7 @@ class MealCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 meal.description,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Colors.black87,
-                ),
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -385,11 +432,17 @@ class MealCard extends StatelessWidget {
                 children: [
                   const Icon(Icons.star, color: Color(0xFF88860B), size: 18),
                   const SizedBox(width: 4),
-                  Text('4.8', // Replace with actual rating if available
-                      style: TextStyle(color: const Color(0xFF884513))),
+                  Text(
+                    '4.8', // Replace with actual rating if available
+                    style: TextStyle(color: const Color(0xFF884513)),
+                  ),
                   const Spacer(),
-                  Text('${meal.vegType} • ${meal.cuisine}',
-                      style: TextStyle(color: const Color(0xFF004D00).withOpacity(0.8))),
+                  Text(
+                    '${meal.vegType} • ${meal.cuisine}',
+                    style: TextStyle(
+                      color: const Color(0xFF004D00).withOpacity(0.8),
+                    ),
+                  ),
                 ],
               ),
             ],

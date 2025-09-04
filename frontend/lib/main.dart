@@ -12,30 +12,42 @@ import 'features/auth/login_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (kIsWeb) {
-    await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: "AIzaSyCsAXFbN2vmNjGIirUQiWR8V9YoYtRKzQY",
-        authDomain: "tiffin-tales-cd25b.firebaseapp.com",
-        projectId: "tiffin-tales-cd25b",
-        storageBucket: "tiffin-tales-cd25b.firebasestorage.app",
-        messagingSenderId: "335221096174",
-        appId: "1:335221096174:web:9a36002823f40686cc7dff",
-        measurementId: "G-SRD2JJ5NDJ",
-      ),
-    );
-  } else {
-    await Firebase.initializeApp();
+  try {
+    if (kIsWeb) {
+      await Firebase.initializeApp(
+        options: const FirebaseOptions(
+          apiKey: "AIzaSyCsAXFbN2vmNjGIirUQiWR8V9YoYtRKzQY",
+          authDomain: "tiffin-tales-cd25b.firebaseapp.com",
+          projectId: "tiffin-tales-cd25b",
+          storageBucket: "tiffin-tales-cd25b.firebasestorage.app",
+          messagingSenderId: "335221096174",
+          appId: "1:335221096174:web:9a36002823f40686cc7dff",
+          measurementId: "G-SRD2JJ5NDJ",
+        ),
+      );
+      debugPrint('Firebase Web initialized successfully.');
+    } else {
+      await Firebase.initializeApp();
+      debugPrint('Firebase Mobile initialized successfully.');
+    }
+  } catch (e) {
+    debugPrint('Error initializing Firebase: $e');
+    // Consider showing an error dialog or a persistent error message to the user
+    // if Firebase initialization fails critically.
+    return; // Stop execution if Firebase fails to initialize
   }
 
   // ⛔️ Run this once to upload sample dishes
-  await uploadSampleDishes();
+  try {
+    await uploadSampleDishes();
+  } catch (e) {
+    debugPrint('Error uploading sample dishes: $e');
+    // This might not be critical for app functionality if dishes are already there
+    // or if the app can function without them.
+  }
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => CartProvider(),
-      child: const MyApp(),
-    ),
+    ChangeNotifierProvider(create: (_) => CartProvider(), child: const MyApp()),
   );
 }
 
@@ -182,6 +194,22 @@ class AuthWrapper extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snapshot) {
+        debugPrint(
+          'AuthWrapper - ConnectionState: ${snapshot.connectionState}',
+        );
+        debugPrint('AuthWrapper - Has data: ${snapshot.hasData}');
+        debugPrint('AuthWrapper - Has error: ${snapshot.hasError}');
+        if (snapshot.hasError) {
+          debugPrint('AuthWrapper Error: ${snapshot.error}');
+          return Scaffold(
+            body: Center(
+              child: Text(
+                'Authentication Error: ${snapshot.error}',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          );
+        }
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
@@ -189,8 +217,14 @@ class AuthWrapper extends StatelessWidget {
         }
         if (snapshot.hasData) {
           return HomeScreen();
+          debugPrint(
+            'AuthWrapper: User is logged in. Navigating to HomeScreen.',
+          );
         } else {
           return LoginScreen();
+          debugPrint(
+            'AuthWrapper: No user logged in. Navigating to LoginScreen.',
+          );
         }
       },
     );
