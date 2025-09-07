@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hertale/app.dart';
 import 'package:hertale/main.dart';
 
 // import 'package:tiffin_tales_app/main.dart';
